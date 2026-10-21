@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vibie Cloudy checker
 // @namespace    kitti.vibie
-// @version      1.2
+// @version      1.3
 // @description  Search the USER LIVE CLOUDY ranking by ID or name: rank, time, %, time left to 35h, rest allowance
 // @match        https://vibie.live/app/events/YFGJ6VT3TGeJSIM0gOCWcQ*
 // @grant        none
@@ -16,7 +16,7 @@
   const DEFAULT_Q = "CLD016, CFQ2L6, UKTXS2, NJ7PFR, ML853W, 2K8BMC, T48QZL, 31Z35R";
   const TARGET = 35 * 3600;
   const secs = t => { const [h, m, s] = t.split(".")[0].split(":").map(Number); return h * 3600 + m * 60 + s; };
-  const hms = s => (s < 0 ? "-" : "") + Math.floor(Math.abs(s) / 3600) + ":" + String(Math.floor(Math.abs(s) % 3600 / 60)).padStart(2, "0");
+  const hms = s => { const a = Math.abs(s), p2 = n => String(n).padStart(2, "0"); return (s < 0 ? "-" : "") + Math.floor(a / 3600) + ":" + p2(Math.floor(a % 3600 / 60)) + ":" + p2(Math.floor(a % 60)); };
   const norm = s => s.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
   const load = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
