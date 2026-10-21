@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vibie Cloudy checker
 // @namespace    kitti.vibie
-// @version      1.4
+// @version      1.5
 // @description  Search the USER LIVE CLOUDY ranking by ID or name: rank, time, %, time left to 35h, rest allowance
 // @match        https://vibie.live/app/events/YFGJ6VT3TGeJSIM0gOCWcQ*
 // @grant        none
@@ -30,7 +30,7 @@
       <button class="fold" title="ย่อ" style="padding:4px 8px;border-radius:4px;border:0;background:#444;color:#fff;cursor:pointer">–</button>
     </div>
     <div class="body">
-      <label style="display:block;margin-bottom:6px;opacity:.8">event จบเวลา (HH:MM วันนี้/พรุ่งนี้ ไม่ทราบให้เว้นว่าง)
+      <label style="display:block;margin-bottom:6px;opacity:.8">event จบ <span class="endauto"></span> · กรอก HH:MM เพื่อใช้เวลาอื่นแทน (เว้นว่าง = ใช้ค่าจากหน้าเว็บ)
         <input class="end" size="5" placeholder="24:00" style="padding:2px 4px;border-radius:4px;border:1px solid #555;background:#111;color:#eee"></label>
       <div class="st" style="opacity:.7;margin-bottom:4px"></div><table style="border-collapse:collapse"></table>
     </div>`;
@@ -46,10 +46,11 @@
     tr.appendChild(c); return c;
   };
 
-  // seconds until the entered HH:MM (24:00 allowed); null when blank/invalid
+  // seconds until the event ends: a typed HH:MM wins, otherwise the date_end the page itself carries
+  let endAuto = null;
   function secsLeft() {
     const m = /^(\d{1,2}):(\d{2})$/.exec(endIn.value.trim());
-    if (!m) return null;
+    if (!m) return endAuto ? Math.floor((endAuto - new Date()) / 1000) : null;
     const end = new Date(); end.setHours(+m[1], +m[2], 0, 0);
     if (end < new Date()) end.setDate(end.getDate() + 1);
     return Math.floor((end - new Date()) / 1000);
@@ -63,6 +64,10 @@
     let html;
     try { html = (await (await fetch(URL, { cache: "no-store" })).text()).replaceAll('\\"', '"'); }
     catch (e) { status.textContent = "โหลดไม่ได้: " + e.message; return; }
+    const em = /"date_end":"([^"]+)"/.exec(html);
+    const d = em ? new Date(em[1]) : null;
+    endAuto = d && !isNaN(d) ? d : null;
+    box.querySelector(".endauto").textContent = endAuto ? "(หน้าเว็บ: " + endAuto.toLocaleString("th-TH-u-ca-gregory", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok", hour12: false }) + ")" : "(อ่านจากหน้าเว็บไม่ได้)";
     const seen = new Set(), rows = [];
     for (const m of html.matchAll(/(?:"display_name":"([^"]*)",)?"vibie_id":"([A-Za-z0-9]+)",(?:"tier":"[^"]*",)?"results":"([0-9:.]+)"/g))
       if (!seen.has(m[2])) { seen.add(m[2]); rows.push({ name: m[1] || "", id: m[2], s: secs(m[3]) }); }
