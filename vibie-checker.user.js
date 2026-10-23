@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vibie Cloudy checker
 // @namespace    kitti.vibie
-// @version      1.5
+// @version      1.6
 // @description  Search the USER LIVE CLOUDY ranking by ID or name: rank, time, %, time left to 35h, rest allowance
 // @match        https://vibie.live/app/events/YFGJ6VT3TGeJSIM0gOCWcQ*
 // @grant        none
@@ -84,9 +84,19 @@
       let hits = rows.filter(r => r.id.toUpperCase() === term.toUpperCase());
       if (!hits.length) hits = rows.filter(r => r.name && norm(r.name).includes(norm(term)));
       if (!hits.length) {
+        const need = TARGET;
+        const rest = left === null ? null : left - need;
         const tr = document.createElement("tr");
-        ["–", term, "ไม่พบ (ต่ำกว่าอันดับ 250?)", "", "", "", ""].forEach(v => cell(tr, v));
-        table.appendChild(tr); continue;
+        cell(tr, "–");
+        cell(tr, term);
+        cell(tr, "ไม่พบ (ต่ำกว่าอันดับ 250?)");
+        cell(tr, "—");
+        cell(tr, "0.0%");
+        cell(tr, hms(need));
+        const c = cell(tr, rest === null ? "—" : hms(rest));
+        if (rest !== null) c.style.color = rest < 0 ? "#f66" : rest < 3600 ? "#fb4" : "#6d6";
+        table.appendChild(tr);
+        continue;
       }
       for (const r of hits) {
         const need = TARGET - r.s;
