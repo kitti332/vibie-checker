@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Vibie Cloudy checker
 // @namespace    kitti.vibie
-// @version      1.6
-// @description  Search the USER LIVE CLOUDY ranking by ID or name: rank, time, %, time left to 35h, rest allowance
+// @version      1.7
+// @description  Search the USER LIVE CLOUDY ranking by ID, name, or rank (e.g. 250, #1, 245-250): rank, time, %, time left to 35h, rest allowance
 // @match        https://vibie.live/app/events/YFGJ6VT3TGeJSIM0gOCWcQ*
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/kitti332/vibie-checker/main/vibie-checker.user.js
@@ -25,7 +25,7 @@
   box.style.cssText = "position:fixed;right:12px;bottom:12px;z-index:999999;background:#1e1e1e;color:#eee;" +
     "font:13px/1.4 system-ui,sans-serif;padding:10px;border-radius:8px;box-shadow:0 2px 12px #0008;max-width:95vw;max-height:90vh;overflow:auto";
   box.innerHTML = `<div style="display:flex;gap:6px;margin-bottom:6px">
-      <input class="q" placeholder="ID หรือชื่อ คั่นด้วย ," style="flex:1;min-width:260px;padding:4px 6px;border-radius:4px;border:1px solid #555;background:#111;color:#eee">
+      <input class="q" placeholder="ID, ชื่อ หรืออันดับ เช่น 250, #1, 245-250 (คั่นด้วย ,)" style="flex:1;min-width:300px;padding:4px 6px;border-radius:4px;border:1px solid #555;background:#111;color:#eee">
       <button class="go" style="padding:4px 10px;border-radius:4px;border:0;background:#3a7;color:#fff;cursor:pointer">เช็ก</button>
       <button class="fold" title="ย่อ" style="padding:4px 8px;border-radius:4px;border:0;background:#444;color:#fff;cursor:pointer">–</button>
     </div>
@@ -59,7 +59,7 @@
   async function check() {
     const qs = q.value.split(",").map(s => s.trim()).filter(Boolean);
     save(KEY_Q, q.value); save(KEY_END, endIn.value);
-    if (!qs.length) { status.textContent = "ใส่ ID หรือชื่อก่อน"; table.replaceChildren(); return; }
+    if (!qs.length) { status.textContent = "ใส่ ID, ชื่อ หรืออันดับก่อน"; table.replaceChildren(); return; }
     status.textContent = "กำลังโหลด…";
     let html;
     try { html = (await (await fetch(URL, { cache: "no-store" })).text()).replaceAll('\\"', '"'); }
@@ -73,17 +73,83 @@
       if (!seen.has(m[2])) { seen.add(m[2]); rows.push({ name: m[1] || "", id: m[2], s: secs(m[3]) }); }
     rows.sort((a, b) => b.s - a.s);
     const left = secsLeft();
-    status.textContent = `${new Date().toLocaleTimeString("th-TH")} · ${rows.length} คนบนหน้า · อันดับสุดท้าย ${rows.length ? hms(rows[rows.length - 1].s) : "-"}` +
+    status.innerHTML = `${new Date().toLocaleTimeString("th-TH")} · ${rows.length} คนบนหน้า · ` +
+      (rows.length ? `<span class="last-rank" style="text-decoration:underline;cursor:pointer" title="คลิกเพื่อเพิ่มอันดับ ${rows.length} ลงในช่องค้นหา">อันดับ ${rows.length}: ${hms(rows[rows.length - 1].s)}</span>` : "ไม่มีข้อมูล") +
       (left === null ? "" : ` · event เหลือ ${hms(left)}`) + " · รีเฟรชทุก 1 นาที";
+    const lrBtn = status.querySelector(".last-rank");
+    if (lrBtn) {
+      lrBtn.onclick = () => {
+        const val = q.value.trim();
+        const targetRank = String(rows.length);
+        if (!val.split(",").map(s => s.trim()).includes(targetRank)) {
+          q.value = val ? `${val}, ${targetRank}` : targetRank;
+          check();
+        }
+      };
+    }
 
     table.replaceChildren();
     const head = document.createElement("tr");
     ["อันดับ", "ID", "ชื่อ", "เวลา", "%", "ยังขาด", "พักได้อีก"].forEach(h => cell(head, h, "th"));
     table.appendChild(head);
     for (const term of qs) {
-      let hits = rows.filter(r => r.id.toUpperCase() === term.toUpperCase());
-      if (!hits.length) hits = rows.filter(r => r.name && norm(r.name).includes(norm(term)));
-      if (!hits.length) {
+      let hits = [];
+      const rangeM = /^[#]?(\d+)\s*-\s*[#]?(\d+)$/.exec(term);
+      if (rangeM) {
+        const from = Math.min(+rangeM[1], +rangeM[2]);
+        const to = Math.max(+rangeM[1], +rangeM[2]);
+        if (from >= 1) {
+          for (let k = from; k <= to; k++) {
+            if (k <= rows.length) {
+              hits.push(rows[k - 1]);
+            } else {
+              const tr = document.createElement("tr");
+              cell(tr, k);
+              cell(tr, "—");
+              cell(tr, `ไม่พบ (มีแค่ ${rows.length} อันดับบนหน้าเว็บ)`);
+              cell(tr, "—");
+              cell(tr, "0.0%");
+              cell(tr, hms(TARGET));
+              const rest = left === null ? null : left - TARGET;
+              const c = cell(tr, rest === null ? "—" : hms(rest));
+              if (rest !== null) c.style.color = rest < 0 ? "#f66" : rest < 3600 ? "#fb4" : "#6d6";
+              table.appendChild(tr);
+            }
+          }
+        }
+      } else {
+        // 1. Exact ID match
+        hits = rows.filter(r => r.id.toUpperCase() === term.toUpperCase());
+
+        // 2. Rank match (e.g. 250, #250, 1)
+        if (!hits.length) {
+          const rankM = /^[#]?(\d+)$/.exec(term);
+          if (rankM) {
+            const k = parseInt(rankM[1], 10);
+            if (k >= 1 && k <= rows.length) {
+              hits = [rows[k - 1]];
+            } else if (k > rows.length) {
+              const tr = document.createElement("tr");
+              cell(tr, k);
+              cell(tr, "—");
+              cell(tr, `ไม่พบ (มีแค่ ${rows.length} อันดับบนหน้าเว็บ)`);
+              cell(tr, "—");
+              cell(tr, "0.0%");
+              cell(tr, hms(TARGET));
+              const rest = left === null ? null : left - TARGET;
+              const c = cell(tr, rest === null ? "—" : hms(rest));
+              if (rest !== null) c.style.color = rest < 0 ? "#f66" : rest < 3600 ? "#fb4" : "#6d6";
+              table.appendChild(tr);
+              continue;
+            }
+          }
+        }
+
+        // 3. Name match
+        if (!hits.length) hits = rows.filter(r => r.name && norm(r.name).includes(norm(term)));
+      }
+
+      if (!hits.length && !rangeM) {
         const need = TARGET;
         const rest = left === null ? null : left - need;
         const tr = document.createElement("tr");
@@ -98,6 +164,7 @@
         table.appendChild(tr);
         continue;
       }
+
       for (const r of hits) {
         const need = TARGET - r.s;
         const rest = left === null || need <= 0 ? null : left - need;
