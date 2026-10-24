@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vibie Cloudy checker
 // @namespace    kitti.vibie
-// @version      2.0
+// @version      2.1
 // @description  Search the USER LIVE CLOUDY ranking by ID, name, rank (e.g. 250, #1, 245-250), or separator (e.g. ---, --------, --- label ---): rank, time, %, time left to 35h, rest allowance
 // @match        https://vibie.live/app/events/YFGJ6VT3TGeJSIM0gOCWcQ*
 // @grant        none
@@ -111,6 +111,7 @@
         } else {
           td.innerHTML = `<div style="height:3px;background:#aaa;margin:2px 8px;border-radius:2px"></div>`;
         }
+        tr.appendChild(td);
         table.appendChild(tr);
         continue;
       }
