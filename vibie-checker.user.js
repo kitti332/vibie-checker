@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Vibie Cloudy checker
 // @namespace    kitti.vibie
-// @version      1.7
-// @description  Search the USER LIVE CLOUDY ranking by ID, name, or rank (e.g. 250, #1, 245-250): rank, time, %, time left to 35h, rest allowance
+// @version      1.8
+// @description  Search the USER LIVE CLOUDY ranking by ID, name, rank (e.g. 250, #1, 245-250), or separator (e.g. ---, --------, --- label ---): rank, time, %, time left to 35h, rest allowance
 // @match        https://vibie.live/app/events/YFGJ6VT3TGeJSIM0gOCWcQ*
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/kitti332/vibie-checker/main/vibie-checker.user.js
@@ -25,7 +25,7 @@
   box.style.cssText = "position:fixed;right:12px;bottom:12px;z-index:999999;background:#1e1e1e;color:#eee;" +
     "font:13px/1.4 system-ui,sans-serif;padding:10px;border-radius:8px;box-shadow:0 2px 12px #0008;max-width:95vw;max-height:90vh;overflow:auto";
   box.innerHTML = `<div style="display:flex;gap:6px;margin-bottom:6px">
-      <input class="q" placeholder="ID, ชื่อ หรืออันดับ เช่น 250, #1, 245-250 (คั่นด้วย ,)" style="flex:1;min-width:300px;padding:4px 6px;border-radius:4px;border:1px solid #555;background:#111;color:#eee">
+      <input class="q" placeholder="ID, ชื่อ, อันดับ เช่น 250, #1, 245-250 หรือตัวคั่น --- (คั่นด้วย ,)" style="flex:1;min-width:300px;padding:4px 6px;border-radius:4px;border:1px solid #555;background:#111;color:#eee">
       <button class="go" style="padding:4px 10px;border-radius:4px;border:0;background:#3a7;color:#fff;cursor:pointer">เช็ก</button>
       <button class="fold" title="ย่อ" style="padding:4px 8px;border-radius:4px;border:0;background:#444;color:#fff;cursor:pointer">–</button>
     </div>
@@ -93,6 +93,28 @@
     ["อันดับ", "ID", "ชื่อ", "เวลา", "%", "ยังขาด", "พักได้อีก"].forEach(h => cell(head, h, "th"));
     table.appendChild(head);
     for (const term of qs) {
+      // 0. Separator row (e.g. ---, --------, or --- label ---)
+      const sepMatch = /^[-=_~*|]{2,}\s*(.*?)\s*[-=_~*|]{2,}$/.exec(term);
+      const isPureSep = /^[-=_~*|]{2,}$/.test(term);
+      if (isPureSep || sepMatch) {
+        const label = sepMatch && sepMatch[1] ? sepMatch[1].trim() : "";
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 7;
+        td.style.cssText = "padding:2px 0;border-bottom:1px solid #333;background:transparent";
+        if (label) {
+          td.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin:4px 8px;color:#888;font-size:11px;font-weight:600">
+            <div style="flex:1;height:1px;background:#444"></div>
+            <span>${label}</span>
+            <div style="flex:1;height:1px;background:#444"></div>
+          </div>`;
+        } else {
+          td.innerHTML = `<div style="height:2px;background:#444;margin:4px 8px;border-radius:1px"></div>`;
+        }
+        table.appendChild(tr);
+        continue;
+      }
+
       let hits = [];
       const rangeM = /^[#]?(\d+)\s*-\s*[#]?(\d+)$/.exec(term);
       if (rangeM) {
