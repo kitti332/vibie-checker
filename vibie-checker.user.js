@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vibie Cloudy checker
 // @namespace    kitti.vibie
-// @version      1.9
+// @version      2.0
 // @description  Search the USER LIVE CLOUDY ranking by ID, name, rank (e.g. 250, #1, 245-250), or separator (e.g. ---, --------, --- label ---): rank, time, %, time left to 35h, rest allowance
 // @match        https://vibie.live/app/events/YFGJ6VT3TGeJSIM0gOCWcQ*
 // @grant        none
@@ -101,15 +101,15 @@
         const tr = document.createElement("tr");
         const td = document.createElement("td");
         td.colSpan = 7;
-        td.style.cssText = "padding:6px 0;border-bottom:1px solid #333;background:transparent";
+        td.style.cssText = "padding:8px 0;background:transparent;";
         if (label) {
-          td.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin:2px 8px;color:#bbb;font-size:11px;font-weight:bold">
-            <div style="flex:1;border-top:1.5px dashed #888"></div>
+          td.innerHTML = `<div style="display:flex;align-items:center;gap:10px;margin:2px 8px;color:#fff;font-size:12px;font-weight:bold">
+            <div style="flex:1;height:2px;background:#888;border-radius:1px"></div>
             <span>${label}</span>
-            <div style="flex:1;border-top:1.5px dashed #888"></div>
+            <div style="flex:1;height:2px;background:#888;border-radius:1px"></div>
           </div>`;
         } else {
-          td.innerHTML = `<div style="border-top:1.5px dashed #888;margin:2px 8px;opacity:.9"></div>`;
+          td.innerHTML = `<div style="height:3px;background:#aaa;margin:2px 8px;border-radius:2px"></div>`;
         }
         table.appendChild(tr);
         continue;
