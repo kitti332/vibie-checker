@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Vibie Cloudy checker
 // @namespace    kitti.vibie
-// @version      2.1
-// @description  Search the USER LIVE CLOUDY ranking by ID, name, rank (e.g. 250, #1, 245-250), or separator (e.g. ---, --------, --- label ---): rank, time, %, time left to 35h, rest allowance
+// @version      2.2
+// @description  Search the USER LIVE CLOUDY ranking by ID, name, rank (e.g. 250, #1, 245-250), per-account target (e.g. ID:10, ID:20), or separator (e.g. ---): rank, time, target, %, time left, rest allowance
 // @match        https://vibie.live/app/events/YFGJ6VT3TGeJSIM0gOCWcQ*
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/kitti332/vibie-checker/main/vibie-checker.user.js
@@ -12,20 +12,22 @@
 
 (() => {
   const URL = "https://vibie.live/app/events/YFGJ6VT3TGeJSIM0gOCWcQ";
-  const KEY_Q = "vibieCheckQuery", KEY_END = "vibieCheckEnd";
+  const KEY_Q = "vibieCheckQuery", KEY_END = "vibieCheckEnd", KEY_TARGETS = "vibieCheckTargets";
   const DEFAULT_Q = "CLD016, CFQ2L6, UKTXS2, NJ7PFR, ML853W, 2K8BMC, T48QZL, 31Z35R";
-  const TARGET = 35 * 3600;
+  const DEFAULT_TARGET_H = 35;
   const secs = t => { const [h, m, s] = t.split(".")[0].split(":").map(Number); return h * 3600 + m * 60 + s; };
   const hms = s => { const a = Math.abs(s), p2 = n => String(n).padStart(2, "0"); return (s < 0 ? "-" : "") + Math.floor(a / 3600) + ":" + p2(Math.floor(a % 3600 / 60)) + ":" + p2(Math.floor(a % 60)); };
   const norm = s => s.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
   const load = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+  const loadTargets = () => { try { return JSON.parse(localStorage.getItem(KEY_TARGETS) || "{}"); } catch { return {}; } };
+  let targets = loadTargets();
 
   const box = document.createElement("div");
   box.style.cssText = "position:fixed;right:12px;bottom:12px;z-index:999999;background:#1e1e1e;color:#eee;" +
     "font:13px/1.4 system-ui,sans-serif;padding:10px;border-radius:8px;box-shadow:0 2px 12px #0008;max-width:95vw;max-height:90vh;overflow:auto";
   box.innerHTML = `<div style="display:flex;gap:6px;margin-bottom:6px">
-      <input class="q" placeholder="ID, ชื่อ, อันดับ เช่น 250, #1, 245-250 หรือตัวคั่น --- (คั่นด้วย ,)" style="flex:1;min-width:300px;padding:4px 6px;border-radius:4px;border:1px solid #555;background:#111;color:#eee">
+      <input class="q" placeholder="ID, ชื่อ, อันดับ (เช่น ID:10, ID:20, 250, #1, 245-250) หรือตัวคั่น --- (คั่นด้วย ,)" style="flex:1;min-width:300px;padding:4px 6px;border-radius:4px;border:1px solid #555;background:#111;color:#eee">
       <button class="go" style="padding:4px 10px;border-radius:4px;border:0;background:#3a7;color:#fff;cursor:pointer">เช็ก</button>
       <button class="fold" title="ย่อ" style="padding:4px 8px;border-radius:4px;border:0;background:#444;color:#fff;cursor:pointer">–</button>
     </div>
@@ -46,6 +48,41 @@
     tr.appendChild(c); return c;
   };
 
+  function getTargetH(key, explicitH) {
+    if (explicitH !== null && !isNaN(explicitH) && explicitH > 0) return explicitH;
+    const saved = key ? targets[key.toUpperCase()] : null;
+    return saved && !isNaN(saved) && saved > 0 ? Number(saved) : DEFAULT_TARGET_H;
+  }
+
+  function makeTargetCell(tr, key, targetH, termIdx) {
+    const c = cell(tr, `${targetH}h`);
+    const color = targetH <= 10 ? "#5cf" : targetH <= 20 ? "#fb4" : "#aaa";
+    c.style.cssText += `;color:${color};cursor:pointer;user-select:none;font-weight:600;text-decoration:underline dotted`;
+    c.title = "คลิกเพื่อสลับเป้าหมาย (35h ➔ 20h ➔ 10h) หรือพิมพ์ต่อท้ายในช่องค้นหา เช่น ID:10, ID:20";
+    c.onclick = () => {
+      const tiers = [35, 20, 10];
+      const idx = tiers.indexOf(targetH);
+      const nextH = tiers[(idx + 1) % tiers.length];
+      if (key) {
+        if (nextH === DEFAULT_TARGET_H) delete targets[key.toUpperCase()];
+        else targets[key.toUpperCase()] = nextH;
+        save(KEY_TARGETS, JSON.stringify(targets));
+      }
+      const parts = q.value.split(",").map(s => s.trim()).filter(Boolean);
+      if (termIdx >= 0 && termIdx < parts.length) {
+        const raw = parts[termIdx];
+        const tm = /^(.*?)\s*(?:[:=/]\s*(\d+(?:\.\d+)?)h?|\(\s*(\d+(?:\.\d+)?)h?\s*\)|\s+(\d+(?:\.\d+)?)h)$/i.exec(raw);
+        if (tm && tm[1].trim()) {
+          parts[termIdx] = nextH === DEFAULT_TARGET_H ? tm[1].trim() : `${tm[1].trim()}:${nextH}`;
+          q.value = parts.join(", ");
+          save(KEY_Q, q.value);
+        }
+      }
+      check();
+    };
+    return c;
+  }
+
   // seconds until the event ends: a typed HH:MM wins, otherwise the date_end the page itself carries
   let endAuto = null;
   function secsLeft() {
@@ -59,6 +96,7 @@
   async function check() {
     const qs = q.value.split(",").map(s => s.trim()).filter(Boolean);
     save(KEY_Q, q.value); save(KEY_END, endIn.value);
+    targets = loadTargets();
     if (!qs.length) { status.textContent = "ใส่ ID, ชื่อ หรืออันดับก่อน"; table.replaceChildren(); return; }
     status.textContent = "กำลังโหลด…";
     let html;
@@ -90,17 +128,18 @@
 
     table.replaceChildren();
     const head = document.createElement("tr");
-    ["อันดับ", "ID", "ชื่อ", "เวลา", "%", "ยังขาด", "พักได้อีก"].forEach(h => cell(head, h, "th"));
+    ["อันดับ", "ID", "ชื่อ", "เวลา", "เป้า", "%", "ยังขาด", "พักได้อีก"].forEach(h => cell(head, h, "th"));
     table.appendChild(head);
-    for (const term of qs) {
+    for (let termIdx = 0; termIdx < qs.length; termIdx++) {
+      const rawTerm = qs[termIdx];
       // 0. Separator row (e.g. ---, --------, or --- label ---)
-      const sepMatch = /^[-=_~*|]{2,}\s*(.*?)\s*[-=_~*|]{2,}$/.exec(term);
-      const isPureSep = /^[-=_~*|]{2,}$/.test(term);
+      const sepMatch = /^[-=_~*|]{2,}\s*(.*?)\s*[-=_~*|]{2,}$/.exec(rawTerm);
+      const isPureSep = /^[-=_~*|]{2,}$/.test(rawTerm);
       if (isPureSep || sepMatch) {
         const label = sepMatch && sepMatch[1] ? sepMatch[1].trim() : "";
         const tr = document.createElement("tr");
         const td = document.createElement("td");
-        td.colSpan = 7;
+        td.colSpan = 8;
         td.style.cssText = "padding:8px 0;background:transparent;";
         if (label) {
           td.innerHTML = `<div style="display:flex;align-items:center;gap:10px;margin:2px 8px;color:#fff;font-size:12px;font-weight:bold">
@@ -116,6 +155,15 @@
         continue;
       }
 
+      // Parse optional per-account target suffix e.g. ID:10, ID:20, ID=20, ID/10, ID(20), ID 20h
+      let term = rawTerm;
+      let explicitH = null;
+      const tm = /^(.*?)\s*(?:[:=/]\s*(\d+(?:\.\d+)?)h?|\(\s*(\d+(?:\.\d+)?)h?\s*\)|\s+(\d+(?:\.\d+)?)h)$/i.exec(rawTerm);
+      if (tm && tm[1].trim()) {
+        term = tm[1].trim();
+        explicitH = parseFloat(tm[2] || tm[3] || tm[4]);
+      }
+
       let hits = [];
       const rangeM = /^[#]?(\d+)\s*-\s*[#]?(\d+)$/.exec(term);
       if (rangeM) {
@@ -126,14 +174,17 @@
             if (k <= rows.length) {
               hits.push(rows[k - 1]);
             } else {
+              const targetH = getTargetH(`#${k}`, explicitH);
+              const targetSec = targetH * 3600;
               const tr = document.createElement("tr");
               cell(tr, k);
               cell(tr, "—");
               cell(tr, `ไม่พบ (มีแค่ ${rows.length} อันดับบนหน้าเว็บ)`);
               cell(tr, "—");
+              makeTargetCell(tr, `#${k}`, targetH, termIdx);
               cell(tr, "0.0%");
-              cell(tr, hms(TARGET));
-              const rest = left === null ? null : left - TARGET;
+              cell(tr, hms(targetSec));
+              const rest = left === null ? null : left - targetSec;
               const c = cell(tr, rest === null ? "—" : hms(rest));
               if (rest !== null) c.style.color = rest < 0 ? "#f66" : rest < 3600 ? "#fb4" : "#6d6";
               table.appendChild(tr);
@@ -152,14 +203,17 @@
             if (k >= 1 && k <= rows.length) {
               hits = [rows[k - 1]];
             } else if (k > rows.length) {
+              const targetH = getTargetH(`#${k}`, explicitH);
+              const targetSec = targetH * 3600;
               const tr = document.createElement("tr");
               cell(tr, k);
               cell(tr, "—");
               cell(tr, `ไม่พบ (มีแค่ ${rows.length} อันดับบนหน้าเว็บ)`);
               cell(tr, "—");
+              makeTargetCell(tr, `#${k}`, targetH, termIdx);
               cell(tr, "0.0%");
-              cell(tr, hms(TARGET));
-              const rest = left === null ? null : left - TARGET;
+              cell(tr, hms(targetSec));
+              const rest = left === null ? null : left - targetSec;
               const c = cell(tr, rest === null ? "—" : hms(rest));
               if (rest !== null) c.style.color = rest < 0 ? "#f66" : rest < 3600 ? "#fb4" : "#6d6";
               table.appendChild(tr);
@@ -173,13 +227,15 @@
       }
 
       if (!hits.length && !rangeM) {
-        const need = TARGET;
+        const targetH = getTargetH(term, explicitH);
+        const need = targetH * 3600;
         const rest = left === null ? null : left - need;
         const tr = document.createElement("tr");
         cell(tr, "–");
         cell(tr, term);
         cell(tr, "ไม่พบ (ต่ำกว่าอันดับ 250?)");
         cell(tr, "—");
+        makeTargetCell(tr, term, targetH, termIdx);
         cell(tr, "0.0%");
         cell(tr, hms(need));
         const c = cell(tr, rest === null ? "—" : hms(rest));
@@ -189,11 +245,18 @@
       }
 
       for (const r of hits) {
-        const need = TARGET - r.s;
+        const targetH = getTargetH(r.id, explicitH);
+        if (explicitH !== null && !isNaN(explicitH) && explicitH > 0) {
+          targets[r.id.toUpperCase()] = explicitH;
+          save(KEY_TARGETS, JSON.stringify(targets));
+        }
+        const targetSec = targetH * 3600;
+        const need = targetSec - r.s;
         const rest = left === null || need <= 0 ? null : left - need;
         const tr = document.createElement("tr");
         cell(tr, rows.indexOf(r) + 1); cell(tr, r.id); cell(tr, r.name); cell(tr, hms(r.s));
-        cell(tr, Math.min(100, r.s / TARGET * 100).toFixed(1) + "%");
+        makeTargetCell(tr, r.id, targetH, termIdx);
+        cell(tr, Math.min(100, r.s / targetSec * 100).toFixed(1) + "%");
         cell(tr, need <= 0 ? "✅ ครบ" : hms(need));
         const c = cell(tr, rest === null ? "—" : hms(rest));
         if (rest !== null) c.style.color = rest < 0 ? "#f66" : rest < 3600 ? "#fb4" : "#6d6";
