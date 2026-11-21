@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Vibie Cloudy checker
 // @namespace    kitti.vibie
-// @version      2.2
-// @description  Search the USER LIVE CLOUDY ranking by ID, name, rank (e.g. 250, #1, 245-250), per-account target (e.g. ID:10, ID:20), or separator (e.g. ---): rank, time, target, %, time left, rest allowance
+// @version      2.3
+// @description  Search the USER LIVE CLOUDY ranking by ID, name, rank (e.g. 250, #1, 245-250), per-account target (e.g. ID:10, ID:20), or separator (e.g. ---): rank, time, gap to #1, target, %, time left, rest allowance
 // @match        https://vibie.live/app/events/YFGJ6VT3TGeJSIM0gOCWcQ*
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/kitti332/vibie-checker/main/vibie-checker.user.js
@@ -110,10 +110,22 @@
     for (const m of html.matchAll(/(?:"display_name":"([^"]*)",)?"vibie_id":"([A-Za-z0-9]+)",(?:"tier":"[^"]*",)?"results":"([0-9:.]+)"/g))
       if (!seen.has(m[2])) { seen.add(m[2]); rows.push({ name: m[1] || "", id: m[2], s: secs(m[3]) }); }
     rows.sort((a, b) => b.s - a.s);
+    const top1Sec = rows.length ? rows[0].s : null;
     const left = secsLeft();
     status.innerHTML = `${new Date().toLocaleTimeString("th-TH")} · ${rows.length} คนบนหน้า · ` +
+      (rows.length ? `<span class="first-rank" style="text-decoration:underline;cursor:pointer" title="คลิกเพื่อเพิ่ม #1 ลงในช่องค้นหา">อันดับ 1: ${hms(rows[0].s)}</span> · ` : "") +
       (rows.length ? `<span class="last-rank" style="text-decoration:underline;cursor:pointer" title="คลิกเพื่อเพิ่มอันดับ ${rows.length} ลงในช่องค้นหา">อันดับ ${rows.length}: ${hms(rows[rows.length - 1].s)}</span>` : "ไม่มีข้อมูล") +
       (left === null ? "" : ` · event เหลือ ${hms(left)}`) + " · รีเฟรชทุก 1 นาที";
+    const frBtn = status.querySelector(".first-rank");
+    if (frBtn) {
+      frBtn.onclick = () => {
+        const val = q.value.trim();
+        if (!val.split(",").map(s => s.trim()).includes("#1")) {
+          q.value = val ? `${val}, #1` : "#1";
+          check();
+        }
+      };
+    }
     const lrBtn = status.querySelector(".last-rank");
     if (lrBtn) {
       lrBtn.onclick = () => {
@@ -128,7 +140,7 @@
 
     table.replaceChildren();
     const head = document.createElement("tr");
-    ["อันดับ", "ID", "ชื่อ", "เวลา", "เป้า", "%", "ยังขาด", "พักได้อีก"].forEach(h => cell(head, h, "th"));
+    ["อันดับ", "ID", "ชื่อ", "เวลา", "ห่างที่ 1", "เป้า", "%", "ยังขาด", "พักได้อีก"].forEach(h => cell(head, h, "th"));
     table.appendChild(head);
     for (let termIdx = 0; termIdx < qs.length; termIdx++) {
       const rawTerm = qs[termIdx];
@@ -139,7 +151,7 @@
         const label = sepMatch && sepMatch[1] ? sepMatch[1].trim() : "";
         const tr = document.createElement("tr");
         const td = document.createElement("td");
-        td.colSpan = 8;
+        td.colSpan = 9;
         td.style.cssText = "padding:8px 0;background:transparent;";
         if (label) {
           td.innerHTML = `<div style="display:flex;align-items:center;gap:10px;margin:2px 8px;color:#fff;font-size:12px;font-weight:bold">
@@ -181,6 +193,8 @@
               cell(tr, "—");
               cell(tr, `ไม่พบ (มีแค่ ${rows.length} อันดับบนหน้าเว็บ)`);
               cell(tr, "—");
+              const c1 = cell(tr, top1Sec !== null ? "-" + hms(top1Sec) : "—");
+              if (top1Sec !== null) c1.style.color = "#f99";
               makeTargetCell(tr, `#${k}`, targetH, termIdx);
               cell(tr, "0.0%");
               cell(tr, hms(targetSec));
@@ -210,6 +224,8 @@
               cell(tr, "—");
               cell(tr, `ไม่พบ (มีแค่ ${rows.length} อันดับบนหน้าเว็บ)`);
               cell(tr, "—");
+              const c1 = cell(tr, top1Sec !== null ? "-" + hms(top1Sec) : "—");
+              if (top1Sec !== null) c1.style.color = "#f99";
               makeTargetCell(tr, `#${k}`, targetH, termIdx);
               cell(tr, "0.0%");
               cell(tr, hms(targetSec));
@@ -235,6 +251,8 @@
         cell(tr, term);
         cell(tr, "ไม่พบ (ต่ำกว่าอันดับ 250?)");
         cell(tr, "—");
+        const c1 = cell(tr, top1Sec !== null ? "-" + hms(top1Sec) : "—");
+        if (top1Sec !== null) c1.style.color = "#f99";
         makeTargetCell(tr, term, targetH, termIdx);
         cell(tr, "0.0%");
         cell(tr, hms(need));
@@ -255,6 +273,9 @@
         const rest = left === null || need <= 0 ? null : left - need;
         const tr = document.createElement("tr");
         cell(tr, rows.indexOf(r) + 1); cell(tr, r.id); cell(tr, r.name); cell(tr, hms(r.s));
+        const diff1 = top1Sec !== null ? top1Sec - r.s : null;
+        const c1 = cell(tr, diff1 === null ? "—" : diff1 <= 0 ? "🏆 ที่ 1" : "-" + hms(diff1));
+        if (diff1 !== null) c1.style.color = diff1 <= 0 ? "#ffd700" : "#f99";
         makeTargetCell(tr, r.id, targetH, termIdx);
         cell(tr, Math.min(100, r.s / targetSec * 100).toFixed(1) + "%");
         cell(tr, need <= 0 ? "✅ ครบ" : hms(need));
