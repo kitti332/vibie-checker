@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Vibie Cloudy checker
 // @namespace    kitti.vibie
-// @version      2.4
-// @description  Search the USER LIVE CLOUDY ranking by ID, name, rank (e.g. 250, #1, 245-250), per-account target (e.g. ID:10, ID:20, ID:#1), or separator (e.g. ---): rank, time, target (35h/20h/10h/#1), %, time left, rest allowance
+// @version      2.5
+// @description  Search the USER LIVE CLOUDY Top 500 ranking by ID, name, rank (e.g. 500, #1, 495-500), per-account target (e.g. ID:10, ID:20, ID:#1), or separator (e.g. ---): rank, time, target (35h/20h/10h/#1), %, time left, rest allowance
 // @match        https://vibie.live/app/events/YFGJ6VT3TGeJSIM0gOCWcQ*
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/kitti332/vibie-checker/main/vibie-checker.user.js
@@ -12,6 +12,7 @@
 
 (() => {
   const URL = "https://vibie.live/app/events/YFGJ6VT3TGeJSIM0gOCWcQ";
+  const API_URL = "https://api.vibie.live/v2/events/livewatch/ranking/2026-11-21T00:00:00.000/2026-11-27T23:59:59.999?&affiliation_uuids=f427f832-9013-4d29-a31f-c71a39bb2409&limit=500";
   const KEY_Q = "vibieCheckQuery", KEY_END = "vibieCheckEnd", KEY_TARGETS = "vibieCheckTargets";
   const DEFAULT_Q = "CLD016, CFQ2L6, UKTXS2, NJ7PFR, ML853W, 2K8BMC, T48QZL, 31Z35R";
   const DEFAULT_TARGET_H = 35;
@@ -27,7 +28,7 @@
   box.style.cssText = "position:fixed;right:12px;bottom:12px;z-index:999999;background:#1e1e1e;color:#eee;" +
     "font:13px/1.4 system-ui,sans-serif;padding:10px;border-radius:8px;box-shadow:0 2px 12px #0008;max-width:95vw;max-height:90vh;overflow:auto";
   box.innerHTML = `<div style="display:flex;gap:6px;margin-bottom:6px">
-      <input class="q" placeholder="ID, ชื่อ, อันดับ (เช่น ID:10, ID:20, ID:#1, 250, #1, 245-250) หรือตัวคั่น ---" style="flex:1;min-width:300px;padding:4px 6px;border-radius:4px;border:1px solid #555;background:#111;color:#eee">
+      <input class="q" placeholder="ID, ชื่อ, อันดับ (เช่น ID:10, ID:20, ID:#1, 500, #1, 495-500) หรือตัวคั่น ---" style="flex:1;min-width:300px;padding:4px 6px;border-radius:4px;border:1px solid #555;background:#111;color:#eee">
       <button class="go" style="padding:4px 10px;border-radius:4px;border:0;background:#3a7;color:#fff;cursor:pointer">เช็ก</button>
       <button class="fold" title="ย่อ" style="padding:4px 8px;border-radius:4px;border:0;background:#444;color:#fff;cursor:pointer">–</button>
     </div>
@@ -115,6 +116,13 @@
 
   // seconds until the event ends: a typed HH:MM wins, otherwise the date_end the page itself carries
   let endAuto = null;
+  function extractDateEnd(text) {
+    if (!text) return null;
+    const clean = text.replaceAll('\\"', '"');
+    const em = /"date_end":"([^"]+)"/.exec(clean);
+    const d = em ? new Date(em[1]) : null;
+    return d && !isNaN(d) ? d : null;
+  }
   function secsLeft() {
     const m = /^(\d{1,2}):(\d{2})$/.exec(endIn.value.trim());
     if (!m) return endAuto ? Math.floor((endAuto - new Date()) / 1000) : null;
@@ -129,21 +137,45 @@
     targets = loadTargets();
     if (!qs.length) { status.textContent = "ใส่ ID, ชื่อ หรืออันดับก่อน"; table.replaceChildren(); return; }
     status.textContent = "กำลังโหลด…";
-    let html;
-    try { html = (await (await fetch(URL, { cache: "no-store" })).text()).replaceAll('\\"', '"'); }
-    catch (e) { status.textContent = "โหลดไม่ได้: " + e.message; return; }
-    const em = /"date_end":"([^"]+)"/.exec(html);
-    const d = em ? new Date(em[1]) : null;
-    endAuto = d && !isNaN(d) ? d : null;
-    box.querySelector(".endauto").textContent = endAuto ? "(หน้าเว็บ: " + endAuto.toLocaleString("th-TH-u-ca-gregory", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok", hour12: false }) + ")" : "(อ่านจากหน้าเว็บไม่ได้)";
     const seen = new Set(), rows = [];
-    for (const m of html.matchAll(/(?:"display_name":"([^"]*)",)?"vibie_id":"([A-Za-z0-9]+)",(?:"tier":"[^"]*",)?"results":"([0-9:.]+)"/g))
-      if (!seen.has(m[2])) { seen.add(m[2]); rows.push({ name: m[1] || "", id: m[2], s: secs(m[3]) }); }
+    let sourceTag = "API", fetchedHtml = null;
+    try {
+      const res = await fetch(API_URL, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        const items = data?.items || data?.data || [];
+        for (const it of items) {
+          const id = String(it?.vibie_id || "").trim();
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          rows.push({ name: it?.display_name || "", id, s: secs(String(it?.results || "0:0:0")) });
+        }
+      }
+    } catch {}
+    if (!rows.length) {
+      sourceTag = "หน้าเว็บ";
+      try { fetchedHtml = (await (await fetch(URL, { cache: "no-store" })).text()).replaceAll('\\"', '"'); }
+      catch (e) { status.textContent = "โหลดไม่ได้: " + e.message; return; }
+      endAuto = extractDateEnd(fetchedHtml) ?? endAuto;
+      for (const m of fetchedHtml.matchAll(/(?:"display_name":"([^"]*)",)?"vibie_id":"([A-Za-z0-9]+)",(?:"tier":"[^"]*",)?"results":"([0-9:.]+)"/g))
+        if (!seen.has(m[2])) { seen.add(m[2]); rows.push({ name: m[1] || "", id: m[2], s: secs(m[3]) }); }
+    }
+    if (!endAuto) {
+      endAuto = extractDateEnd(document.getElementById("__NEXT_DATA__")?.textContent)
+        ?? extractDateEnd(document.documentElement?.innerHTML);
+      if (!endAuto && !fetchedHtml) {
+        try { endAuto = extractDateEnd(await (await fetch(URL, { cache: "no-store" })).text()); } catch {}
+      }
+    }
+    box.querySelector(".endauto").textContent = endAuto
+      ? "(หน้าเว็บ: " + endAuto.toLocaleString("th-TH-u-ca-gregory", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok", hour12: false }) + ")"
+      : "(อ่านจากหน้าเว็บไม่ได้)";
     rows.sort((a, b) => b.s - a.s);
     const top1Sec = rows.length ? rows[0].s : null;
     const left = secsLeft();
-    status.innerHTML = `${new Date().toLocaleTimeString("th-TH")} · ${rows.length} คนบนหน้า · ` +
+    status.innerHTML = `${new Date().toLocaleTimeString("th-TH")} · ${rows.length} คน (${sourceTag}) · ` +
       (rows.length ? `<span class="first-rank" style="text-decoration:underline;cursor:pointer" title="คลิกเพื่อเพิ่ม #1 ลงในช่องค้นหา">อันดับ 1: ${hms(rows[0].s)}</span> · ` : "") +
+      (rows.length >= 50 ? `<span class="rank50" style="text-decoration:underline;cursor:pointer" title="คลิกเพื่อเพิ่ม 50 ลงในช่องค้นหา">อันดับ 50: ${hms(rows[49].s)}</span> · ` : "") +
       (rows.length ? `<span class="last-rank" style="text-decoration:underline;cursor:pointer" title="คลิกเพื่อเพิ่มอันดับ ${rows.length} ลงในช่องค้นหา">อันดับ ${rows.length}: ${hms(rows[rows.length - 1].s)}</span>` : "ไม่มีข้อมูล") +
       (left === null ? "" : ` · event เหลือ ${hms(left)}`) + " · รีเฟรชทุก 1 นาที";
     const frBtn = status.querySelector(".first-rank");
@@ -152,6 +184,16 @@
         const val = q.value.trim();
         if (!val.split(",").map(s => s.trim()).includes("#1")) {
           q.value = val ? `${val}, #1` : "#1";
+          check();
+        }
+      };
+    }
+    const r50Btn = status.querySelector(".rank50");
+    if (r50Btn) {
+      r50Btn.onclick = () => {
+        const val = q.value.trim();
+        if (!val.split(",").map(s => s.trim()).includes("50")) {
+          q.value = val ? `${val}, 50` : "50";
           check();
         }
       };
@@ -210,7 +252,7 @@
             if (k <= rows.length) {
               hits.push(rows[k - 1]);
             } else {
-              appendMissingRow(k, "—", `ไม่พบ (มีแค่ ${rows.length} อันดับบนหน้าเว็บ)`, `#${k}`, explicitTarget, termIdx, top1Sec, left);
+              appendMissingRow(k, "—", `ไม่พบ (ดึงได้ ${rows.length} อันดับ)`, `#${k}`, explicitTarget, termIdx, top1Sec, left);
             }
           }
         }
@@ -218,7 +260,7 @@
         // 1. Exact ID match
         hits = rows.filter(r => r.id.toUpperCase() === term.toUpperCase());
 
-        // 2. Rank match (e.g. 250, #250, 1)
+        // 2. Rank match (e.g. 500, #500, 1)
         if (!hits.length) {
           const rankM = /^[#]?(\d+)$/.exec(term);
           if (rankM) {
@@ -226,7 +268,7 @@
             if (k >= 1 && k <= rows.length) {
               hits = [rows[k - 1]];
             } else if (k > rows.length) {
-              appendMissingRow(k, "—", `ไม่พบ (มีแค่ ${rows.length} อันดับบนหน้าเว็บ)`, `#${k}`, explicitTarget, termIdx, top1Sec, left);
+              appendMissingRow(k, "—", `ไม่พบ (ดึงได้ ${rows.length} อันดับ)`, `#${k}`, explicitTarget, termIdx, top1Sec, left);
               continue;
             }
           }
@@ -237,7 +279,7 @@
       }
 
       if (!hits.length && !rangeM) {
-        appendMissingRow("–", term, "ไม่พบ (ต่ำกว่าอันดับ 250?)", term, explicitTarget, termIdx, top1Sec, left);
+        appendMissingRow("–", term, `ไม่พบ (ต่ำกว่าอันดับ ${rows.length || 500}?)`, term, explicitTarget, termIdx, top1Sec, left);
         continue;
       }
 
